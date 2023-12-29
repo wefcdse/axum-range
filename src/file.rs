@@ -3,9 +3,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use pin_project::pin_project;
-use tokio::io::{ReadBuf, AsyncRead, AsyncSeek, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncSeek, AsyncSeekExt, ReadBuf};
 
-use crate::{RangeBody, AsyncSeekStart};
+use crate::{AsyncSeekStart, RangeBody};
 
 /// Implements [`RangeBody`] for any [`AsyncRead`] and [`AsyncSeekStart`], constructed with a fixed byte size.
 #[pin_project]
@@ -19,7 +19,10 @@ impl KnownSize<tokio::fs::File> {
     /// Calls [`tokio::fs::File::metadata`] to determine file size.
     pub async fn file(file: tokio::fs::File) -> io::Result<KnownSize<tokio::fs::File>> {
         let byte_size = file.metadata().await?.len();
-        Ok(KnownSize { byte_size, body: file })
+        Ok(KnownSize {
+            byte_size,
+            body: file,
+        })
     }
 }
 
@@ -50,18 +53,12 @@ impl<B: AsyncRead + AsyncSeekStart> AsyncRead for KnownSize<B> {
 }
 
 impl<B: AsyncRead + AsyncSeekStart> AsyncSeekStart for KnownSize<B> {
-    fn start_seek(
-        self: Pin<&mut Self>,
-        position: u64,
-    ) -> io::Result<()> {
+    fn start_seek(self: Pin<&mut Self>, position: u64) -> io::Result<()> {
         let this = self.project();
         this.body.start_seek(position)
     }
 
-    fn poll_complete(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.project();
         this.body.poll_complete(cx)
     }
@@ -75,22 +72,31 @@ impl<B: AsyncRead + AsyncSeekStart> RangeBody for KnownSize<B> {
 
 #[cfg(test)]
 mod tests {
-    use tokio::fs::File;
     use crate::RangeBody;
+    use tokio::fs::File;
 
     use super::KnownSize;
+    fn file_size() -> u64 {
+        include_bytes!("../test/fixture.txt").len() as u64
+    }
+
+    #[test]
+    fn file_size_valid_for_testing() {
+        assert!(file_size() < 80);
+        assert!(file_size() > 60);
+    }
 
     #[tokio::test]
     async fn test_file_size() {
         let file = File::open("test/fixture.txt").await.unwrap();
         let known_size = KnownSize::file(file).await.unwrap();
-        assert_eq!(54, known_size.byte_size());
+        assert_eq!(file_size(), known_size.byte_size());
     }
 
     #[tokio::test]
     async fn test_seek_size() {
         let file = File::open("test/fixture.txt").await.unwrap();
         let known_size = KnownSize::file(file).await.unwrap();
-        assert_eq!(54, known_size.byte_size());
+        assert_eq!(file_size(), known_size.byte_size());
     }
 }
