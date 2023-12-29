@@ -1,11 +1,11 @@
-use std::{io, mem};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::{io, mem};
 
-use axum::response::{Response, IntoResponse};
+use axum::response::{IntoResponse, Response};
 use bytes::{Bytes, BytesMut};
-use http_body::{Body, SizeHint};
 use futures::Stream;
+use http_body::{Body, SizeHint};
 use pin_project::pin_project;
 use tokio::io::ReadBuf;
 
@@ -53,15 +53,14 @@ impl<B: RangeBody> Body for RangedStream<B> {
         SizeHint::with_exact(self.length)
     }
 
-    fn poll_data(self: Pin<&mut Self>, cx: &mut Context<'_>)
-        -> Poll<Option<io::Result<Bytes>>>
-    {
+    fn poll_data(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         self.poll_next(cx)
     }
 
-    fn poll_trailers(self: Pin<&mut Self>, _: &mut Context<'_>)
-        -> Poll<io::Result<Option<axum::http::HeaderMap>>>
-    {
+    fn poll_trailers(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<io::Result<Option<axum::http::HeaderMap>>> {
         Poll::Ready(Ok(None))
     }
 }
@@ -69,15 +68,14 @@ impl<B: RangeBody> Body for RangedStream<B> {
 impl<B: RangeBody> Stream for RangedStream<B> {
     type Item = io::Result<Bytes>;
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>
-    ) -> Poll<Option<io::Result<Bytes>>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
         let mut this = self.project();
 
         if let StreamState::Seek { start } = *this.state {
             match this.body.as_mut().start_seek(start) {
-                Err(e) => { return Poll::Ready(Some(Err(e))); }
+                Err(e) => {
+                    return Poll::Ready(Some(Err(e)));
+                }
                 Ok(()) => {
                     let remaining = *this.length;
                     *this.state = StreamState::Seeking { remaining };
@@ -87,8 +85,12 @@ impl<B: RangeBody> Stream for RangedStream<B> {
 
         if let StreamState::Seeking { remaining } = *this.state {
             match this.body.as_mut().poll_complete(cx) {
-                Poll::Pending => { return Poll::Pending; }
-                Poll::Ready(Err(e)) => { return Poll::Ready(Some(Err(e))); }
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+                Poll::Ready(Err(e)) => {
+                    return Poll::Ready(Some(Err(e)));
+                }
                 Poll::Ready(Ok(())) => {
                     let buffer = allocate_buffer();
                     *this.state = StreamState::Reading { buffer, remaining };
@@ -109,16 +111,24 @@ impl<B: RangeBody> Stream for RangedStream<B> {
             let mut read_buf = ReadBuf::uninit(&mut uninit[0..nbytes]);
 
             match this.body.as_mut().poll_read(cx, &mut read_buf) {
-                Poll::Pending => { return Poll::Pending; }
-                Poll::Ready(Err(e)) => { return Poll::Ready(Some(Err(e))); }
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+                Poll::Ready(Err(e)) => {
+                    return Poll::Ready(Some(Err(e)));
+                }
                 Poll::Ready(Ok(())) => {
                     match read_buf.filled().len() {
-                        0 => { return Poll::Ready(None); }
+                        0 => {
+                            return Poll::Ready(None);
+                        }
                         n => {
                             // SAFETY: poll_read has filled the buffer with `n`
                             // additional bytes. `buffer.len` should always be
                             // 0 here, but include it for rigorous correctness
-                            unsafe { buffer.set_len(buffer.len() + n); }
+                            unsafe {
+                                buffer.set_len(buffer.len() + n);
+                            }
 
                             // replace state buffer and take this one to return
                             let chunk = mem::replace(buffer, allocate_buffer());
