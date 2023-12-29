@@ -13,8 +13,9 @@
 //! type implementing [`AsyncSeek`].
 //!
 //! ```
-//! use axum::{Router, TypedHeader};
-//! use axum::headers::Range;
+//! use axum::Router;
+//! use axum_extra::TypedHeader;
+//! use axum_extra::headers::Range;
 //! use axum::routing::get;
 //!
 //! use tokio::fs::File;
@@ -282,16 +283,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_unbounded_start_response() {
+        // [headers] says:
+        // "
+        // Unbounded ranges in HTTP are actually a suffix
+        // For example, `-100` means the last 100 bytes.
+        // "
+        // so I changed the test
+
         let ranged = Ranged::new(range("bytes=-20"), body().await);
 
         let response = ranged.try_respond().expect("try_respond should return Ok");
 
-        assert_eq!(21, response.content_length.0);
+        assert_eq!(20, response.content_length.0);
 
-        let expected_content_range = ContentRange::bytes(0..21, body_size().await).unwrap();
+        let expected_content_range =
+            ContentRange::bytes(body_size().await - 20..body_size().await, body_size().await)
+                .unwrap();
         assert_eq!(Some(expected_content_range), response.content_range);
 
-        assert_eq!(&body_str()[..=20], &collect_stream(response.stream).await);
+        assert_eq!(
+            &body_str()[(body_size().await as usize - 20)..],
+            &collect_stream(response.stream).await
+        );
     }
 
     #[tokio::test]
