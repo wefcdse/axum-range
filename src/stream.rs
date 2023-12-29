@@ -41,7 +41,7 @@ enum StreamState {
 
 impl<B: RangeBody + Send + 'static> IntoResponse for RangedStream<B> {
     fn into_response(self) -> Response {
-        Response::new(axum::body::boxed(self))
+        Response::new(axum::body::Body::new(self))
     }
 }
 
@@ -53,15 +53,12 @@ impl<B: RangeBody> Body for RangedStream<B> {
         SizeHint::with_exact(self.length)
     }
 
-    fn poll_data(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<io::Result<Bytes>>> {
-        self.poll_next(cx)
-    }
-
-    fn poll_trailers(
+    fn poll_frame(
         self: Pin<&mut Self>,
-        _: &mut Context<'_>,
-    ) -> Poll<io::Result<Option<axum::http::HeaderMap>>> {
-        Poll::Ready(Ok(None))
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        self.poll_next(cx)
+            .map(|m| m.map(|m| m.map(|m| http_body::Frame::data(m))))
     }
 }
 
